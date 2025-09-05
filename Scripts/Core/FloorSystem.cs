@@ -143,6 +143,21 @@ namespace DungeonOwner.Core
             return floor.CanPlaceMonster(position);
         }
 
+        /// <summary>
+        /// プレイヤーキャラクターを配置できるかチェック
+        /// </summary>
+        public bool CanPlaceCharacter(int floorIndex, Vector2 position)
+        {
+            Floor floor = GetFloor(floorIndex);
+            if (floor == null)
+            {
+                return false;
+            }
+
+            // プレイヤーキャラクターは通常のモンスター配置ルールと同じ
+            return floor.CanPlaceMonster(position);
+        }
+
         public bool PlaceMonster(int floorIndex, GameObject monster, Vector2 position)
         {
             if (monster == null)

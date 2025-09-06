@@ -278,6 +278,29 @@ namespace DungeonOwner.Core
                 child.gameObject.SetActive(false);
             }
 
+            // 全階層のモンスターと侵入者を非表示
+            for (int i = 0; i < Floors.Count; i++)
+            {
+                if (Floors[i] != null)
+                {
+                    foreach (var monster in Floors[i].placedMonsters)
+                    {
+                        if (monster != null)
+                        {
+                            monster.SetActive(false);
+                        }
+                    }
+
+                    foreach (var invader in Floors[i].activeInvaders)
+                    {
+                        if (invader != null)
+                        {
+                            invader.SetActive(false);
+                        }
+                    }
+                }
+            }
+
             // 現在の階層のオブジェクトのみ表示
             string upStairName = $"UpStair_Floor{currentViewFloor}";
             string downStairName = $"DownStair_Floor{currentViewFloor}";
@@ -290,7 +313,7 @@ namespace DungeonOwner.Core
                 }
             }
 
-            // 現在の階層のモンスターと侵入者を表示
+            // 現在の階層のモンスターと侵入者のみ表示
             Floor currentFloor = GetCurrentFloor();
             if (currentFloor != null)
             {

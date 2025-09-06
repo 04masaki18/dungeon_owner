@@ -1,12 +1,14 @@
 using System.Collections.Generic;
 using UnityEngine;
 using DungeonOwner.Data;
+using DungeonOwner.PlayerCharacters;
+using DungeonOwner.Interfaces;
 
 namespace DungeonOwner.Managers
 {
     /// <summary>
     /// 退避スポットシステムを管理するクラス
-    /// モンスターの退避、配置、売却機能を提供
+    /// モンスターとプレイヤーキャラクターの退避、配置、売却機能を提供
     /// </summary>
     public class ShelterManager : MonoBehaviour
     {
@@ -17,18 +19,22 @@ namespace DungeonOwner.Managers
         [SerializeField] private float recoveryRate = 2.0f; // HP/MP回復速度倍率
         
         private List<IMonster> shelterMonsters = new List<IMonster>();
+        private List<BasePlayerCharacter> shelterPlayerCharacters = new List<BasePlayerCharacter>();
         private MonsterPlacementManager placementManager;
         private FloorSystem floorSystem;
         
         public List<IMonster> ShelterMonsters => shelterMonsters;
+        public List<BasePlayerCharacter> ShelterPlayerCharacters => shelterPlayerCharacters;
         public int MaxCapacity => maxCapacity;
-        public int CurrentCount => shelterMonsters.Count;
-        public bool IsFull => shelterMonsters.Count >= maxCapacity;
+        public int CurrentCount => shelterMonsters.Count + shelterPlayerCharacters.Count;
+        public bool IsFull => CurrentCount >= maxCapacity;
         
         // イベント
         public System.Action<IMonster> OnMonsterSheltered;
         public System.Action<IMonster> OnMonsterDeployed;
         public System.Action<IMonster> OnMonsterSold;
+        public System.Action<BasePlayerCharacter> OnPlayerCharacterSheltered;
+        public System.Action<BasePlayerCharacter> OnPlayerCharacterDeployed;
         
         private void Awake()
         {
@@ -247,8 +253,71 @@ namespace DungeonOwner.Managers
         }
         
         /// <summary>
-        /// 退避スポット内モンスターのHP/MP回復処理
+        /// プレイヤーキャラクターを退避スポットに追加
+        /// 要件8.3: 撃破時の退避スポット蘇生機能
+        /// </summary>
+        public bool AddPlayerCharacterToShelter(BasePlayerCharacter playerCharacter)
+        {
+            if (playerCharacter == null) return false;
+            if (IsFull) return false;
+            if (shelterPlayerCharacters.Contains(playerCharacter)) return false;
+            
+            shelterPlayerCharacters.Add(playerCharacter);
+            playerCharacter.MoveToShelter();
+            
+            OnPlayerCharacterSheltered?.Invoke(playerCharacter);
+            Debug.Log($"プレイヤーキャラクター {playerCharacter.Type} を退避スポットに移動しました");
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// プレイヤーキャラクターを退避スポットから除去
+        /// </summary>
+        public bool RemovePlayerCharacterFromShelter(BasePlayerCharacter playerCharacter)
+        {
+            if (playerCharacter == null) return false;
+            if (!shelterPlayerCharacters.Contains(playerCharacter)) return false;
+            
+            shelterPlayerCharacters.Remove(playerCharacter);
+            OnPlayerCharacterDeployed?.Invoke(playerCharacter);
+            
+            Debug.Log($"プレイヤーキャラクター {playerCharacter.Type} を退避スポットから除去しました");
+            return true;
+        }
+        
+        /// <summary>
+        /// プレイヤーキャラクターを退避スポットから階層に配置
+        /// </summary>
+        public bool DeployPlayerCharacter(BasePlayerCharacter playerCharacter, int floorIndex, Vector2 position)
+        {
+            if (!shelterPlayerCharacters.Contains(playerCharacter))
+            {
+                Debug.LogWarning("指定されたプレイヤーキャラクターは退避スポットにいません");
+                return false;
+            }
+            
+            // 配置可能かチェック
+            if (floorSystem != null && !floorSystem.CanPlaceCharacter(floorIndex, position))
+            {
+                Debug.LogWarning($"階層 {floorIndex} の位置 {position} にプレイヤーキャラクターを配置できません");
+                return false;
+            }
+            
+            // 退避スポットから除去
+            RemovePlayerCharacterFromShelter(playerCharacter);
+            
+            // 階層に配置
+            playerCharacter.DeployFromShelter(position);
+            
+            Debug.Log($"プレイヤーキャラクター {playerCharacter.Type} を階層 {floorIndex} に配置しました");
+            return true;
+        }
+        
+        /// <summary>
+        /// 退避スポット内モンスターとプレイヤーキャラクターのHP/MP回復処理
         /// 要件7.5: 退避スポット内のモンスターは時間経過でHP/MPを高速回復
+        /// 要件8.5: 退避スポット内の自キャラクターは時間経過でHP/MPを回復
         /// </summary>
         private void Update()
         {
@@ -257,6 +326,7 @@ namespace DungeonOwner.Managers
         
         public void UpdateRecovery(float deltaTime)
         {
+            // モンスターの回復処理
             foreach (var monster in shelterMonsters)
             {
                 if (monster == null) continue;
@@ -279,6 +349,22 @@ namespace DungeonOwner.Managers
                         baseMonster.RestoreMana(manaAmount);
                     }
                 }
+            }
+            
+            // プレイヤーキャラクターの回復処理
+            foreach (var playerCharacter in shelterPlayerCharacters)
+            {
+                if (playerCharacter == null || !playerCharacter.IsAlive()) continue;
+                
+                // HP回復
+                if (playerCharacter.Health < playerCharacter.MaxHealth)
+                {
+                    float healAmount = playerCharacter.MaxHealth * 0.15f * recoveryRate * deltaTime;
+                    playerCharacter.Heal(healAmount);
+                }
+                
+                // MP回復（プレイヤーキャラクターは自動回復処理を持っているため、追加で高速回復）
+                // BasePlayerCharacterの自然回復処理が退避スポットで高速化される
             }
         }
         
@@ -360,6 +446,22 @@ namespace DungeonOwner.Managers
             Debug.Log($"Restored {monsterData.type} in shelter");
         }
 
+        /// プレイヤーキャラクターが退避スポットにいるかチェック
+        /// </summary>
+        public bool HasPlayerCharacterInShelter(BasePlayerCharacter playerCharacter)
+        {
+            return shelterPlayerCharacters.Contains(playerCharacter);
+        }
+        
+        /// <summary>
+        /// 退避スポット内のプレイヤーキャラクター数を取得
+        /// </summary>
+        public int GetPlayerCharacterCount()
+        {
+            return shelterPlayerCharacters.Count;
+        }
+        
+
         /// <summary>
         /// 退避スポットをクリア（デバッグ用）
         /// </summary>
@@ -373,7 +475,17 @@ namespace DungeonOwner.Managers
                 }
             }
             
+            foreach (var playerCharacter in shelterPlayerCharacters)
+            {
+                if (playerCharacter != null)
+                {
+                    // プレイヤーキャラクターは破棄せず、退避スポットから除去のみ
+                    playerCharacter.DeployFromShelter(Vector2.zero);
+                }
+            }
+            
             shelterMonsters.Clear();
+            shelterPlayerCharacters.Clear();
             Debug.Log("退避スポットをクリアしました");
         }
     }
